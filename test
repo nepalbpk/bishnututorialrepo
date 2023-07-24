@@ -1,0 +1,63 @@
+from pyspark.sql import SparkSession
+
+# Initialize Spark session
+spark = SparkSession.builder.appName("S3toRedshift").getOrCreate()
+
+# Set AWS credentials (ensure you have appropriate permissions)
+spark.conf.set("spark.hadoop.fs.s3a.access.key", "YOUR_ACCESS_KEY")
+spark.conf.set("spark.hadoop.fs.s3a.secret.key", "YOUR_SECRET_KEY")
+
+# Set up Redshift properties
+redshift_url = "jdbc:redshift://YOUR_REDSHIFT_ENDPOINT:5439/YOUR_DATABASE"
+redshift_username = "YOUR_REDSHIFT_USERNAME"
+redshift_password = "YOUR_REDSHIFT_PASSWORD"
+
+# Function to load DataFrame into Redshift table
+def load_to_redshift(dataframe, table_name):
+    dataframe.write \
+             .format("jdbc") \
+             .option("url", redshift_url) \
+             .option("dbtable", table_name) \
+             .option("user", redshift_username) \
+             .option("password", redshift_password) \
+             .option("driver", "com.amazon.redshift.jdbc.Driver") \
+             .mode("append") \
+             .save()
+
+# Function to read files from S3 and return DataFrame
+def read_from_s3(file_path):
+    return spark.read.csv(file_path, header=True, inferSchema=True)
+
+if _name_ == "_main_":
+    # File paths in S3
+    file_paths = [
+        "s3://your-bucket/file1.csv",
+        "s3://your-bucket/file2.csv",
+        "s3://your-bucket/file3.csv",
+        "s3://your-bucket/file4.csv",
+        "s3://your-bucket/file5.csv",
+        "s3://your-bucket/file6.csv",
+    ]
+
+    # Read the six files from S3 into DataFrames
+    dataframes = [read_from_s3(file_path) for file_path in file_paths]
+
+    # Load DataFrames into Redshift tables
+    table_names = ["table1", "table2", "table3", "table4", "table5", "table6"]
+    for df, table_name in zip(dataframes, table_names):
+        load_to_redshift(df, table_name)
+
+    # Process the data and create three separate DataFrames
+    # For example:
+    # dataframe1 = dataframes[0].filter(...)
+    # dataframe2 = dataframes[1].select(...)
+    # dataframe3 = dataframes[2].groupBy(...).agg(...)
+
+    # Load the three separate DataFrames into three separate Redshift tables
+    # For example:
+    # load_to_redshift(dataframe1, "table7")
+    # load_to_redshift(dataframe2, "table8")
+    # load_to_redshift(dataframe3, "table9")
+
+    # Stop the Spark session
+    spark.stop()
