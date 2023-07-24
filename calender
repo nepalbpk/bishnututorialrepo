@@ -1,0 +1,34 @@
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType, DateType
+
+def generate_calendar_dimension(start_date, end_date):
+    # Initialize a SparkSession
+    spark = SparkSession.builder.appName("Calendar Dimension").getOrCreate()
+
+    # Create a list of dates for the calendar dimension
+    date_range_df = spark.createDataFrame([(start_date, end_date)], ["start_date", "end_date"])
+
+    calendar_df = date_range_df.selectExpr("explode(sequence(to_date(start_date), to_date(end_date))) as date")
+
+    # Extract year, quarter, and day from the date
+    calendar_df = calendar_df.withColumn("year", F.year("date").cast(StringType()))
+    calendar_df = calendar_df.withColumn("quarter", F.concat(F.col("year"), F.lit("-QTR-"), F.quarter("date").cast(StringType())))
+
+    # Add day key as yyyy-mm-dd
+    calendar_df = calendar_df.withColumn("day_key", F.date_format("date", "yyyy-MM-dd"))
+
+    # Add day name in yyyy-mm-dd format
+    calendar_df = calendar_df.withColumn("day_name", F.date_format("date", "yyyy-MM-dd"))
+
+    # Add month name in yyyy-mm format
+    calendar_df = calendar_df.withColumn("month_name", F.date_format("date", "yyyy-MM"))
+
+    # Show the resulting DataFrame
+    calendar_df.show()
+
+# Example usage of the function
+if __name__ == "__main__":
+    start_date = "2023-01-01"
+    end_date = "2023-12-31"
+    generate_calendar_dimension(start_date, end_date)
