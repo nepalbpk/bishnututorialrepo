@@ -1,0 +1,45 @@
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType, DateType
+
+def create_cal_month_dimensions(spark, start_date, end_date):
+    date_range_df = spark.createDataFrame([(start_date, end_date)], ["start_date", "end_date"])
+
+    # Explode the range into individual dates
+    calendar_df = date_range_df.selectExpr("explode(sequence(to_date(start_date), to_date(end_date))) as date")
+
+    # Extract year, quarter, and month for the calendar_df
+    calendar_df = calendar_df.withColumn('Year_Name', F.year('date').cast(StringType()))
+    calendar_df = calendar_df.withColumn('Quarter_Name', F.concat(F.col('Year_Name'), F.lit('-QTR-'), F.quarter('date').cast(StringType())))
+    calendar_df = calendar_df.withColumn('Month_Name', F.date_format('date', 'yyyy-MM'))
+    calendar_df = calendar_df.withColumn('Day_Name', F.date_format('date', 'yyyy-MM-dd'))
+    calendar_df = calendar_df.withColumn('Day_key', F.date_format('date', 'yyyy-MM-dd'))
+    calendar_df = calendar_df.select('Day_key', 'Day_Name', 'Month_Name', 'Quarter_Name', 'Year_Name')
+
+    # Explode the range into individual months for the month_df
+    month_df = date_range_df.selectExpr("explode(sequence(to_date(start_date), to_date(end_date), interval 1 month)) as month_date")
+
+    # Extract year and month, and create the desired columns for month_df
+    month_df = month_df.withColumn('Year_Name', F.year('month_date').cast(StringType()))
+    month_df = month_df.withColumn('Month', F.month('month_date').cast(StringType()))
+    month_df = month_df.withColumn('Month_Key', F.date_format('month_date', 'yyyy-MM'))
+    month_df = month_df.withColumn('Month_Name', F.date_format('month_date', 'yyyy-MM'))
+    month_df = month_df.withColumn('Quarter_Name', F.concat(F.col('Year_Name'), F.lit('-QTR-'), F.quarter('month_date').cast(StringType())))
+    month_df = month_df.select('Month_Key', 'Month_Name', 'Quarter_Name', 'Year_Name')
+
+    return calendar_df, month_df
+
+if __name__ == "__main__":
+    # Initialize a SparkSession
+    spark = SparkSession.builder.appName("Dimensions Creation").getOrCreate()
+
+    # Define the start and end dates
+    start_date = '2013-01-01'
+    end_date = '2030-12-31'
+
+    # Generate calendar and month dimensions
+    calendar_df, month_df = create_cal_month_dimensions(spark, start_date, end_date)
+
+    # Show the results
+    month_df.show()
+    cal_df.show()
