@@ -1,0 +1,61 @@
+import argparse
+from pyspark.sql import SparkSession
+
+def create_spark_session():
+    return SparkSession.builder \
+        .appName("CopyDataFromViewToTable") \
+        .config("spark.jars", "/path/to/your/postgresql/driver.jar") \
+        .getOrCreate()
+
+def get_columns_for_table(spark, table_name):
+    query = f"""
+        SELECT column_name 
+        FROM svv_columns 
+        WHERE table_schema = 'hr' AND table_name = '{table_name}' 
+        ORDER BY ordinal_position
+    """
+    columns_df = spark.read.jdbc(jdbc_url, query, properties=redshift_properties)
+    columns = columns_df.rdd.flatMap(lambda x: x).collect()
+    return columns
+
+if __name__ == "__main__":
+    # Argument parser setup
+    parser = argparse.ArgumentParser(description='Load data from views to tables in Redshift')
+    parser.add_argument('-f', '--file', required=True, help='Path to the S3 file containing the list of tables')
+    args = parser.parse_args()
+
+    # Redshift JDBC connection properties
+    jdbc_url = "jdbc:redshift://your_redshift_endpoint:5439/yourdatabase"
+    redshift_properties = {
+        "user": "your_username",
+        "password": "your_password",
+        "driver": "org.postgresql.Driver"
+    }
+
+    # Initialize Spark Session
+    spark = create_spark_session()
+
+    # Read the list of tables from the provided S3 path argument
+    tables_list = [row['table_name'] for row in spark.read.text(args.file).collect()]
+
+    for table in tables_list:
+        # Fetch columns for the table
+        columns = get_columns_for_table(spark, table)
+        columns_str = ", ".join(columns)
+
+        view_name = f"rts_{table}_view"
+        
+        # Truncate table
+        truncate_query = f"TRUNCATE TABLE {table}"
+        spark.sql(truncate_query)
+        
+        # Insert data from view to table
+        insert_query = f"INSERT INTO {table} ({columns_str}) SELECT {columns_str} FROM {view_name}"
+        spark.sql(insert_query)
+
+    # Stop SparkSession
+    spark.stop()
+
+
+----------------------------
+python your_script_name.py -f s3a://path_to_your_file
