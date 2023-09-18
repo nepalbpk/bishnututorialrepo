@@ -1,0 +1,79 @@
+import argparse
+import psycopg2
+from pyspark.sql import SparkSession
+
+def create_spark_session():
+    return SparkSession.builder \
+        .appName("CopyDataFromViewToTable") \
+        .getOrCreate()
+
+def get_columns_for_table(spark, table_name, redshift_url, redshift_properties):
+    query = f"""
+        SELECT column_name 
+        FROM svv_columns 
+        WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' 
+        ORDER BY ordinal_position
+    """
+    df = spark.read \
+        .format("io.github.spark_redshift_community.spark.redshift") \
+        .option("url", redshift_url) \
+        .option("query", query) \
+        .option("user", redshift_properties["user"]) \
+        .option("password", redshift_properties["password"]) \
+        .load()
+
+    columns = df.rdd.flatMap(lambda x: x).collect()
+    return columns
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Load data from views to tables in Redshift')
+    parser.add_argument('-f', '--file', required=True, help='Path to the S3 file containing the list of tables')
+    parser.add_argument('-g', '--group', required=True, help='Group name e.g. "group 1"')
+    args = parser.parse_args()
+
+    spark = create_spark_session()
+
+    # Placeholder for schema name
+    schema_name = "tcu_curated_zone"
+
+    # Read the S3 file into a DataFrame and filter based on group header
+    tables_df = spark.read.text(args.file)
+    table_rows = tables_df.filter(tables_df.value.contains(args.group)).collect()
+    table_list = [row['value'] for row in table_rows if "group" not in row['value'].lower()]
+
+    connection_details = {
+        "host": "your_hostname",
+        "port": "your_port",
+        "dbname": "your_database",
+        "user": "your_username",
+        "password": "your_password"
+    }
+
+    redshift_url = "jdbc:redshift://{host}:{port}/{dbname}".format(**connection_details)
+    redshift_properties = {
+        "user": connection_details["user"],
+        "password": connection_details["password"],
+    }
+
+    with psycopg2.connect(**connection_details) as conn:
+        for table in table_list:
+            columns = get_columns_for_table(spark, table, redshift_url, redshift_properties)
+            columns_str = ", ".join(columns)
+
+            view_name = f"{schema_name}.rts_{table}_view"
+            
+            with conn.cursor() as cursor:
+                # Truncate table
+                cursor.execute(f"TRUNCATE TABLE {schema_name}.{table}")
+
+                # Insert data from view to table
+                cursor.execute(f"INSERT INTO {schema_name}.{table} ({columns_str}) SELECT {columns_str} FROM {view_name}")
+            
+            conn.commit()
+
+    spark.stop()
+	
+	
+	
+	python your_script_name.py -f s3a://path_to_your_file -g "group 1"
+
